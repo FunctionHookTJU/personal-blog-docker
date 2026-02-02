@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理后台 - 我的博客</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>博客管理后台</h1>
+            <nav>
+                <a href="index.html">返回首页</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="admin-panel">
+            <section class="article-form">
+                <h2 id="form-title">发布新文章</h2>
+                <form id="article-form">
+                    <input type="hidden" id="article-id">
+                    
+                    <div class="form-group">
+                        <label for="title">标题</label>
+                        <input type="text" id="title" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="author">作者</label>
+                        <input type="text" id="author" value="博主">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tags">标签 (用逗号分隔)</label>
+                        <input type="text" id="tags" placeholder="例: 技术,编程,JavaScript">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="content">内容</label>
+                        <textarea id="content" rows="10" required></textarea>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">发布文章</button>
+                        <button type="button" class="btn btn-secondary" onclick="resetForm()">取消</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="articles-list">
+                <h2>文章列表</h2>
+                <div id="admin-articles-container">
+                    <div class="loading">加载中...</div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        const API_URL = window.location.hostname === 'localhost' 
+            ? 'http://localhost:3000/api' 
+            : '/api';
+
+        let editingArticleId = null;
+
+        // 加载文章列表
+        async function loadArticles() {
+            try {
+                const response = await fetch(`${API_URL}/articles`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayAdminArticles(result.data);
+                } else {
+                    showError('加载文章失败');
+                }
+            } catch (error) {
+                showError('网络错误: ' + error.message);
+            }
+        }
+
+        // 显示管理后台文章列表
+        function displayAdminArticles(articles) {
+            const container = document.getElementById('admin-articles-container');
+            
+            if (articles.length === 0) {
+                container.innerHTML = '<p class="no-articles">暂无文章</p>';
+                return;
+            }
+
+            container.innerHTML = articles.map(article => `
+                <div class="admin-article-item">
+                    <div class="admin-article-info">
+                        <h3>${escapeHtml(article.title)}</h3>
+                        <p class="article-meta">
+                            作者: ${escapeHtml(article.author)} | 
+                            发布: ${formatDate(article.createdAt)}
+                        </p>
+                    </div>
+                    <div class="admin-article-actions">
+                        <button onclick="editArticle('${article._id}')" class="btn btn-small">编辑</button>
+                        <button onclick="deleteArticle('${article._id}')" class="btn btn-small btn-danger">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 提交表单
+        document.getElementById('article-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const title = document.getElementById('title').value;
+            const content = document.getElementById('content').value;
+            const author = document.getElementById('author').value;
+            const tagsInput = document.getElementById('tags').value;
+            const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(t => t) : [];
+
+            const articleData = { title, content, author, tags };
+
+            try {
+                let response;
+                if (editingArticleId) {
+                    // 更新文章
+                    response = await fetch(`${API_URL}/articles/${editingArticleId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(articleData)
+                    });
+                } else {
+                    // 创建新文章
+                    response = await fetch(`${API_URL}/articles`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(articleData)
+                    });
+                }
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(editingArticleId ? '文章更新成功!' : '文章发布成功!');
+                    resetForm();
+                    loadArticles();
+                } else {
+                    alert('操作失败: ' + result.message);
+                }
+            } catch (error) {
+                alert('网络错误: ' + error.message);
+            }
+        });
+
+        // 编辑文章
+        async function editArticle(id) {
+            try {
+                const response = await fetch(`${API_URL}/articles/${id}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const article = result.data;
+                    editingArticleId = id;
+                    document.getElementById('form-title').textContent = '编辑文章';
+                    document.getElementById('title').value = article.title;
+                    document.getElementById('author').value = article.author;
+                    document.getElementById('content').value = article.content;
+                    document.getElementById('tags').value = article.tags ? article.tags.join(', ') : '';
+                    
+                    // 滚动到表单
+                    document.querySelector('.article-form').scrollIntoView({ behavior: 'smooth' });
+                } else {
+                    alert('加载文章失败');
+                }
+            } catch (error) {
+                alert('网络错误: ' + error.message);
+            }
+        }
+
+        // 删除文章
+        async function deleteArticle(id) {
+            if (!confirm('确定要删除这篇文章吗?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/articles/${id}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('文章删除成功!');
+                    loadArticles();
+                } else {
+                    alert('删除失败: ' + result.message);
+                }
+            } catch (error) {
+                alert('网络错误: ' + error.message);
+            }
+        }
+
+        // 重置表单
+        function resetForm() {
+            editingArticleId = null;
+            document.getElementById('form-title').textContent = '发布新文章';
+            document.getElementById('article-form').reset();
+            document.getElementById('author').value = '博主';
+        }
+
+        // 显示错误
+        function showError(message) {
+            const container = document.getElementById('admin-articles-container');
+            container.innerHTML = `<p class="error">${message}</p>`;
+        }
+
+        // HTML转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 格式化日期
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('zh-CN', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        // 页面加载时获取文章
+        loadArticles();
+    </script>
+</body>
+</html>
